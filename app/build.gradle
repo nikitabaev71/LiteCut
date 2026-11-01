@@ -14,5 +14,6 @@ android {
 }
 dependencies {
     // LTS builds support API 16+. "-gpl" = libx264, "full" = freetype (text overlay).
-    implementation 'com.arthenica:ffmpeg-kit-full-gpl:6.0-2.LTS'
+    implementation fileTree(dir: 'libs', include: ['*.aar'])
+    implementation 'com.arthenica:smart-exception-java:0.2.1'
 }
