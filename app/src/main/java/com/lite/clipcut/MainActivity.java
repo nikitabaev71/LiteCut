@@ -11,7 +11,18 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.text.TextUtils;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadataRetriever;
+import android.os.Handler;
+import android.view.Gravity;
 import android.view.View;
+import org.json.JSONObject;
 import android.widget.*;
 import com.arthenica.ffmpegkit.*;
 import java.io.*;
@@ -32,41 +43,109 @@ public class MainActivity extends Activity {
 
     VideoView vv; TextView info; ProgressBar bar; EditText txt; CheckBox cbFade, cbMute;
     Spinner spFilter, spSpeed, spXform, spAspect, spQuality; SeekBar sbBright, sbContrast, sbSat;
-    String inPath; int durMs, startMs, endMs;
+    String inPath, pid; JSONObject proj; int durMs, startMs, endMs;
+
+    // ---------- UI (dark, CapCut-style) ----------
+    static final int BG = 0xFF0E0E10, PANEL = 0xFF1A1A1E, ACCENT = 0xFF19E3E3, TXT = 0xFFEDEDED, DIM = 0xFF8A8A92;
+    static final String[] TOOLS = {"Speed", "Filter", "Adjust", "Text", "Ratio", "Audio", "Quality"};
+    TimelineView tl; PlayView playBtn; TextView timeTxt;
+    final View[] panels = new View[TOOLS.length]; final TextView[] toolBtns = new TextView[TOOLS.length];
+    final Handler h = new Handler(); boolean playing; long lastSeek; float dp;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        pid = getIntent().getStringExtra("id"); proj = Projects.load(this, pid);
+        if (proj == null) { finish(); return; }
         if (Build.VERSION.SDK_INT >= 23)
             requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
-        LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(16,16,16,16);
-        vv = new VideoView(this); vv.setMediaController(new MediaController(this));
-        vv.setOnPreparedListener(mp -> { durMs = vv.getDuration(); startMs = 0; endMs = durMs; refresh(); });
-        c.addView(vv, new LinearLayout.LayoutParams(-1, (int) (220 * getResources().getDisplayMetrics().density)));
-        info = new TextView(this); c.addView(info);
-        c.addView(row(btn("Open video", v -> pick()),
-            btn("Set start", v -> { startMs = vv.getCurrentPosition(); if (startMs >= endMs) endMs = durMs; refresh(); }),
-            btn("Set end", v -> { endMs = vv.getCurrentPosition(); if (endMs <= startMs) startMs = 0; refresh(); })));
-        spSpeed = add(c, "Speed", sp(SPEEDS)); spSpeed.setSelection(2);
-        spXform = add(c, "Rotate / flip", sp(XFORM));
-        spAspect = add(c, "Crop to ratio", sp(ASPECT));
-        spFilter = add(c, "Filter", sp(FILTERS));
-        sbBright = add(c, "Brightness", sb()); sbContrast = add(c, "Contrast", sb()); sbSat = add(c, "Saturation", sb());
-        txt = new EditText(this); txt.setHint("Text overlay (optional)"); c.addView(txt);
-        cbFade = new CheckBox(this); cbFade.setText("Fade in / out"); c.addView(cbFade);
-        cbMute = new CheckBox(this); cbMute.setText("Mute audio"); c.addView(cbMute);
-        spQuality = add(c, "Export", sp(QUALITY));
-        bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); bar.setMax(100); c.addView(bar);
-        c.addView(row(btn("Export", v -> export()), btn("Cancel", v -> FFmpegKit.cancel())));
-        ScrollView s = new ScrollView(this); s.addView(c); setContentView(s);
-        refresh();
+        dp = getResources().getDisplayMetrics().density;
+        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(BG);
+
+        LinearLayout top = new LinearLayout(this); top.setGravity(Gravity.CENTER_VERTICAL); top.setPadding(px(10), px(8), px(10), px(8));
+        top.addView(pill("Back", 0xFF2A2A30, TXT, v -> finish()));
+        top.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        TextView ex = pill("Export", ACCENT, 0xFF001417, v -> export());
+        ex.setOnLongClickListener(v -> { FFmpegKit.cancel(); toast("Cancelling…"); return true; });   // long-press = cancel
+        top.addView(ex);
+        root.addView(top);
+        bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); bar.setMax(100);
+        root.addView(bar, new LinearLayout.LayoutParams(-1, px(4)));
+
+        FrameLayout pv = new FrameLayout(this);
+        vv = new VideoView(this);
+        vv.setOnPreparedListener(mp -> { durMs = vv.getDuration(); startMs = proj.optInt("start", 0); endMs = proj.optInt("end", 0);
+            if (endMs <= startMs || endMs > durMs) { startMs = 0; endMs = durMs; }
+            tl.setClip(durMs); tl.start = startMs; tl.end = endMs; vv.seekTo(100); loadThumbs(); refresh(); });
+        vv.setOnCompletionListener(mp -> { stopPlay(); vv.seekTo(startMs); });
+        pv.addView(vv, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        root.addView(pv, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        LinearLayout ctl = new LinearLayout(this); ctl.setGravity(Gravity.CENTER_VERTICAL); ctl.setPadding(px(14), 0, px(14), 0);
+        timeTxt = tv("00:00 / 00:00", TXT); ctl.addView(timeTxt, new LinearLayout.LayoutParams(0, -2, 1));
+        playBtn = new PlayView(this); playBtn.setOnClickListener(v -> togglePlay()); ctl.addView(playBtn, new LinearLayout.LayoutParams(px(48), px(48)));
+        info = tv("", DIM); info.setGravity(Gravity.RIGHT); ctl.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(ctl);
+
+        tl = new TimelineView(this);
+        tl.listener = new TimelineView.Listener() {
+            public void onSeek(int ms, boolean fin) {
+                if (inPath == null) return;
+                if (playing) stopPlay();
+                long n = System.currentTimeMillis();
+                if (fin || n - lastSeek > 120) { vv.seekTo(ms); lastSeek = n; }
+                refresh();
+            }
+            public void onTrim(int s, int e) { startMs = s; endMs = e; }
+        };
+        root.addView(tl, new LinearLayout.LayoutParams(-1, px(104)));
+
+        FrameLayout pf = new FrameLayout(this); pf.setBackgroundColor(PANEL);
+        spSpeed = sp(SPEEDS); spSpeed.setSelection(2); panels[0] = panel(spSpeed);
+        spFilter = sp(FILTERS); panels[1] = panel(spFilter);
+        sbBright = sb(); sbContrast = sb(); sbSat = sb();
+        panels[2] = panel(labeled("Brightness", sbBright), labeled("Contrast", sbContrast), labeled("Saturation", sbSat));
+        txt = new EditText(this); txt.setHint("Text overlay (optional)"); txt.setTextColor(TXT); txt.setHintTextColor(DIM); panels[3] = panel(txt);
+        spAspect = sp(ASPECT); spXform = sp(XFORM); panels[4] = panel(labeled("Crop to ratio", spAspect), labeled("Rotate / flip", spXform));
+        cbFade = new CheckBox(this); cbFade.setText("Fade in / out"); cbFade.setTextColor(TXT);
+        cbMute = new CheckBox(this); cbMute.setText("Mute audio"); cbMute.setTextColor(TXT); panels[5] = panel(cbMute, cbFade);
+        spQuality = sp(QUALITY); panels[6] = panel(labeled("Export quality", spQuality));
+        for (View p : panels) pf.addView(p);
+        root.addView(pf, new LinearLayout.LayoutParams(-1, -2));
+
+        HorizontalScrollView hs = new HorizontalScrollView(this); hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout tb = new LinearLayout(this);
+        for (int i = 0; i < TOOLS.length; i++) {
+            final int k = i; TextView t = tv(TOOLS[i], TXT); t.setPadding(px(18), px(14), px(18), px(14));
+            t.setOnClickListener(v -> showPanel(k)); toolBtns[i] = t; tb.addView(t);
+        }
+        hs.addView(tb); root.addView(hs);
+        spSpeed.setSelection(proj.optInt("speed", 2)); spFilter.setSelection(proj.optInt("filter")); spXform.setSelection(proj.optInt("xform"));
+        spAspect.setSelection(proj.optInt("aspect")); spQuality.setSelection(proj.optInt("quality"));
+        sbBright.setProgress(proj.optInt("bright", 50)); sbContrast.setProgress(proj.optInt("contrast", 50)); sbSat.setProgress(proj.optInt("sat", 50));
+        txt.setText(proj.optString("text")); cbFade.setChecked(proj.optBoolean("fade")); cbMute.setChecked(proj.optBoolean("mute"));
+        inPath = proj.optString("path"); vv.setVideoPath(inPath);
+        setContentView(root); refresh();
     }
 
-    // ---------- UI helpers ----------
-    Button btn(String t, View.OnClickListener l) { Button x = new Button(this); x.setText(t); x.setOnClickListener(l); return x; }
-    LinearLayout row(View... vs) {
-        LinearLayout r = new LinearLayout(this);
-        for (View v : vs) r.addView(v, new LinearLayout.LayoutParams(0, -2, 1));
-        return r;
+    // ---------- Project autosave ----------
+    void saveProject() {
+        if (proj == null || inPath == null || durMs == 0) return;
+        try {
+            proj.put("start", startMs).put("end", endMs).put("speed", spSpeed.getSelectedItemPosition()).put("filter", spFilter.getSelectedItemPosition())
+                .put("xform", spXform.getSelectedItemPosition()).put("aspect", spAspect.getSelectedItemPosition()).put("quality", spQuality.getSelectedItemPosition())
+                .put("bright", sbBright.getProgress()).put("contrast", sbContrast.getProgress()).put("sat", sbSat.getProgress())
+                .put("text", txt.getText().toString()).put("fade", cbFade.isChecked()).put("mute", cbMute.isChecked());
+            Projects.save(this, proj);
+        } catch (Exception e) { }
+    }
+    @Override protected void onPause() { super.onPause(); if (playing) stopPlay(); saveProject(); }
+
+    int px(float v) { return (int) (v * dp + .5f); }
+    void toast(String m) { Toast.makeText(this, m, Toast.LENGTH_LONG).show(); }
+    TextView tv(String s, int c) { TextView t = new TextView(this); t.setText(s); t.setTextColor(c); t.setTextSize(13); return t; }
+    TextView pill(String s, int bg, int fg, View.OnClickListener l) {
+        TextView t = tv(s, fg); t.setTypeface(null, Typeface.BOLD); t.setGravity(Gravity.CENTER); t.setPadding(px(18), px(8), px(18), px(8));
+        GradientDrawable g = new GradientDrawable(); g.setColor(bg); g.setCornerRadius(px(20)); t.setBackground(g); t.setOnClickListener(l); return t;
     }
     Spinner sp(String[] items) {
         Spinner s = new Spinner(this);
@@ -74,30 +153,64 @@ public class MainActivity extends Activity {
         a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item); s.setAdapter(a); return s;
     }
     SeekBar sb() { SeekBar s = new SeekBar(this); s.setMax(100); s.setProgress(50); return s; }
-    <T extends View> T add(LinearLayout c, String label, T v) { TextView t = new TextView(this); t.setText(label); c.addView(t); c.addView(v); return v; }
-    void toast(String m) { Toast.makeText(this, m, Toast.LENGTH_LONG).show(); }
-    void refresh() { info.setText(inPath == null ? "No video loaded" :
-        String.format(Locale.US, "Trim %.1fs → %.1fs  (%.1fs kept)", startMs / 1000.0, endMs / 1000.0, (endMs - startMs) / 1000.0)); }
-
-    // ---------- Input ----------
-    void pick() { startActivityForResult(new Intent(Intent.ACTION_GET_CONTENT).setType("video/*"), 7); }
-    @Override protected void onActivityResult(int rq, int rs, Intent d) {
-        if (rq == 7 && rs == RESULT_OK && d != null) {
-            inPath = pathFrom(d.getData());
-            if (inPath == null) toast("Can't read that file"); else vv.setVideoPath(inPath);
-        }
+    LinearLayout panel(View... vs) {
+        LinearLayout p = new LinearLayout(this); p.setOrientation(LinearLayout.VERTICAL); p.setPadding(px(14), px(8), px(14), px(10));
+        for (View v : vs) p.addView(v); p.setVisibility(View.GONE); return p;
     }
-    String pathFrom(Uri u) {
-        if ("file".equals(u.getScheme())) return u.getPath();
-        Cursor c = getContentResolver().query(u, new String[]{MediaStore.Video.Media.DATA}, null, null, null);
-        try { if (c != null && c.moveToFirst()) { String p = c.getString(0); if (p != null && new File(p).canRead()) return p; } }
-        finally { if (c != null) c.close(); }
-        try { // fallback: copy into cache
-            File f = new File(getCacheDir(), "in.mp4");
-            InputStream i = getContentResolver().openInputStream(u); OutputStream o = new FileOutputStream(f);
-            byte[] buf = new byte[65536]; int n; while ((n = i.read(buf)) > 0) o.write(buf, 0, n);
-            i.close(); o.close(); return f.getPath();
-        } catch (Exception e) { return null; }
+    LinearLayout labeled(String s, View v) { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.addView(tv(s, DIM)); l.addView(v); return l; }
+    void showPanel(int k) {
+        boolean open = panels[k].getVisibility() != View.VISIBLE;
+        for (int i = 0; i < panels.length; i++) { panels[i].setVisibility(open && i == k ? View.VISIBLE : View.GONE); toolBtns[i].setTextColor(open && i == k ? ACCENT : TXT); }
+    }
+    static String fmt(int ms) { int s = ms / 1000; return String.format(Locale.US, "%02d:%02d", s / 60, s % 60); }
+    void refresh() {
+        timeTxt.setText(inPath == null ? "00:00 / 00:00" : fmt(tl.pos) + " / " + fmt(durMs));
+        info.setText(inPath == null ? "Open a video" : String.format(Locale.US, "Trim %.1fs", (endMs - startMs) / 1000.0));
+    }
+
+    // ---------- Playback (respects the trim range) ----------
+    void togglePlay() {
+        if (inPath == null) return;
+        if (playing) { stopPlay(); return; }
+        int p = vv.getCurrentPosition(); if (p < startMs || p >= endMs - 50) vv.seekTo(startMs);
+        vv.start(); playing = true; playBtn.setPlaying(true); h.post(tick);
+    }
+    void stopPlay() { playing = false; vv.pause(); playBtn.setPlaying(false); }
+    final Runnable tick = new Runnable() { public void run() {
+        if (!playing) return;
+        int p = vv.getCurrentPosition();
+        if (p >= endMs) { stopPlay(); vv.seekTo(startMs); p = startMs; }
+        tl.setPos(p); refresh(); h.postDelayed(this, 60);
+    } };
+
+    // ---------- Filmstrip thumbnails (background thread) ----------
+    void loadThumbs() {
+        final String path = inPath; final int d = durMs, n = 8, th = px(56); final Bitmap[] t = new Bitmap[n];
+        tl.thumbs = t;
+        new Thread(() -> {
+            MediaMetadataRetriever r = new MediaMetadataRetriever();
+            try {
+                r.setDataSource(path);
+                for (int i = 0; i < n && path.equals(inPath); i++) {
+                    Bitmap f = r.getFrameAtTime(1000L * d * (2 * i + 1) / (2 * n), MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (f == null) continue;
+                    t[i] = Bitmap.createScaledBitmap(f, Math.max(1, f.getWidth() * th / f.getHeight()), th, true);
+                    if (t[i] != f) f.recycle();
+                    tl.postInvalidate();
+                }
+            } catch (Exception e) { } finally { r.release(); }
+        }).start();
+    }
+
+    static class PlayView extends View {
+        boolean playing; final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        PlayView(Context c) { super(c); p.setColor(0xFFFFFFFF); }
+        void setPlaying(boolean b) { playing = b; invalidate(); }
+        @Override protected void onDraw(Canvas c) {
+            float w = getWidth(), h = getHeight(), s = Math.min(w, h) * .3f;
+            if (playing) { c.drawRect(w / 2 - s * .9f, h / 2 - s, w / 2 - s * .2f, h / 2 + s, p); c.drawRect(w / 2 + s * .2f, h / 2 - s, w / 2 + s * .9f, h / 2 + s, p); }
+            else { Path t = new Path(); t.moveTo(w / 2 - s * .6f, h / 2 - s); t.lineTo(w / 2 + s, h / 2); t.lineTo(w / 2 - s * .6f, h / 2 + s); t.close(); c.drawPath(t, p); }
+        }
     }
 
     // ---------- Export ----------
@@ -157,7 +270,7 @@ public class MainActivity extends Activity {
                 if (mute) a.add("-an");
                 else { if (!af.isEmpty()) { a.add("-af"); a.add(TextUtils.join(",", af)); } a.addAll(Arrays.asList("-c:a", "aac", "-b:a", "128k")); }
                 a.addAll(Arrays.asList("-c:v", "libx264", "-preset", "ultrafast", "-crf", "25", "-profile:v", "main",
-                    "-pix_fmt", "yuv420p", "-movflags", "+faststart", out));
+                    "-pix_fmt", "yuv420p", "-g", "30", "-movflags", "+faststart", out));
 
                 FFmpegKit.executeWithArgumentsAsync(a.toArray(new String[0]), s -> runOnUiThread(() -> {
                     if (ReturnCode.isSuccess(s.getReturnCode())) {
