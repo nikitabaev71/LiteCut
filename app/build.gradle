@@ -1,0 +1,18 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.lite.clipcut'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.lite.clipcut'
+        minSdk 16          // Android 4.1
+        targetSdk 28       // keeps legacy storage access working on old + new devices
+        versionCode 1
+        versionName '1.0'
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }   // add 'x86' for Intel devices
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+dependencies {
+    // LTS builds support API 16+. "-gpl" = libx264, "full" = freetype (text overlay).
+    implementation 'com.arthenica:ffmpeg-kit-full-gpl:6.0-2.LTS'
+}
