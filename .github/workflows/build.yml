@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         if: steps.cache.outputs.cache-hit != 'true'
-        with: { distribution: temurin, java-version: 11 }
+        with: { distribution: temurin, java-version: 17 }
 
       - name: Install build tools and NDK
         if: steps.cache.outputs.cache-hit != 'true'
