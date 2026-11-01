@@ -1,10 +1,66 @@
 name: build
 on: [push, workflow_dispatch]
+
 jobs:
+  ffmpeg:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      NDK_ZIP: android-ndk-r22b-linux-x86_64.zip
+      NDK_DIR: android-ndk-r22b
+    steps:
+      - name: Restore cached AAR
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-kit.aar
+          key: ffmpeg-kit-lts-x264-freetype-v1
+
+      - name: Get FFmpegKit source
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with: { repository: arthenica/ffmpeg-kit, ref: main, path: ffmpeg-kit }
+
+      - uses: actions/setup-java@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with: { distribution: temurin, java-version: 11 }
+
+      - name: Install build tools and NDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool pkg-config curl git cmake gcc g++ gperf texinfo \
+            yasm nasm bison flex gettext autopoint meson ninja-build ragel groff gtk-doc-tools autogen wget \
+            python3 python-is-python3
+          curl -sL -o ndk.zip "https://dl.google.com/android/repository/$NDK_ZIP"
+          unzip -q ndk.zip -d "$HOME"
+          echo "ANDROID_NDK_ROOT=$HOME/$NDK_DIR" >> "$GITHUB_ENV"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Build FFmpegKit (API 16, x264, freetype)
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: ffmpeg-kit
+        run: |
+          ./android.sh --lts --force --enable-gpl --enable-x264 --enable-freetype --disable-x86 --disable-x86-64
+          AAR=$(find prebuilt -name '*.aar' | head -n1)
+          test -n "$AAR"
+          cp "$AAR" "$GITHUB_WORKSPACE/ffmpeg-kit.aar"
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: ffmpeg-build-log, path: ffmpeg-kit/build.log }
+
+      - uses: actions/upload-artifact@v4
+        with: { name: ffmpeg-aar, path: ffmpeg-kit.aar }
+
   apk:
+    needs: ffmpeg
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: ffmpeg-aar, path: app/libs }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v3
