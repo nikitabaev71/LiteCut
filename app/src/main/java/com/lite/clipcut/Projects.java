@@ -30,5 +30,5 @@ class Projects {
             long d = b.optLong("modified") - a.optLong("modified"); return d > 0 ? 1 : d < 0 ? -1 : 0; } });
         return l;
     }
-    static void delete(Context c, String id) { for (String s : new String[]{".json", ".jpg", "_src.mp4"}) new File(dir(c), id + s).delete(); }
+    static void delete(Context c, String id) { File[] fs = dir(c).listFiles(); if (fs != null) for (File f : fs) if (f.getName().startsWith(id)) f.delete(); }
 }
