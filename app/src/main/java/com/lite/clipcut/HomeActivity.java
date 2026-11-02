@@ -112,7 +112,7 @@ public class HomeActivity extends Activity {
                     Bitmap s = Bitmap.createScaledBitmap(f, 256, Math.max(1, f.getHeight() * 256 / f.getWidth()), true);
                     FileOutputStream fos = new FileOutputStream(Projects.thumb(this, id)); s.compress(Bitmap.CompressFormat.JPEG, 80, fos); fos.close();
                 }
-            } catch (Exception e) { } finally { r.release(); }
+            } catch (Exception e) { } finally { try { r.release(); } catch (Exception ex) { } }
             String day = new SimpleDateFormat("MMdd", Locale.US).format(new Date()); int n = 1;
             for (JSONObject q : Projects.list(this)) if (q.optString("name").startsWith(day + "(")) n++;
             final JSONObject po = new JSONObject();

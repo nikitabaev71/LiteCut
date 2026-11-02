@@ -198,7 +198,7 @@ public class MainActivity extends Activity {
                     if (t[i] != f) f.recycle();
                     tl.postInvalidate();
                 }
-            } catch (Exception e) { } finally { r.release(); }
+            } catch (Exception e) { } finally { try { r.release(); } catch (Exception ex) { } }
         }).start();
     }
 
