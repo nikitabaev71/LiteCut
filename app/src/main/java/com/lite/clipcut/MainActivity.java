@@ -32,9 +32,33 @@ import java.io.*;
 import java.util.*;
 
 public class MainActivity extends Activity {
-    static final String[] FILTERS = {"None","B&W","Sepia","Vivid","Warm","Cool","Vignette","Blur","Negative"};
+    static final String[] FILTERS = {"None","B&W","Sepia","Vivid","Warm","Cool","Vignette","Blur","Negative",
+        "Vintage","Cinematic","Film","Matte","Dramatic","Noir","Sunset","Teal & Orange","Cyberpunk","Night vision","Lomo","Soft glow","Ice","Golden"};
     static final String[] FILTER_VF = {"","hue=s=0","colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
-        "eq=saturation=1.5:contrast=1.1","eq=gamma_r=1.12:gamma_b=0.88","eq=gamma_r=0.9:gamma_b=1.12","vignette","boxblur=3:1","negate"};
+        "eq=saturation=1.5:contrast=1.1","eq=gamma_r=1.12:gamma_b=0.88","eq=gamma_r=0.9:gamma_b=1.12","vignette","boxblur=3:1","negate",
+        "curves=preset=vintage",
+        "eq=contrast=1.15:saturation=1.1,colorbalance=rs=-0.08:bs=0.08:rh=0.1:bh=-0.08",
+        "eq=contrast=1.08:saturation=0.9,noise=alls=10:allf=t+u,vignette=PI/6",
+        "curves=m='0/0.12 1/0.92',eq=saturation=0.85",
+        "eq=contrast=1.35:saturation=1.2:gamma=0.9",
+        "hue=s=0,eq=contrast=1.4:brightness=-0.03",
+        "colorbalance=rs=.3:bs=-.3:rm=.15:bm=-.15,eq=saturation=1.2",
+        "colorbalance=rs=-.15:bs=.15:rh=.2:bh=-.2",
+        "colorbalance=rs=.2:bs=.3:rh=.15:bh=.25,eq=saturation=1.5:contrast=1.1",
+        "hue=s=0,eq=brightness=0.08:contrast=1.3,colorchannelmixer=rr=0:rg=0:rb=0:gr=1:gg=0:gb=0:br=0:bg=0:bb=0",
+        "eq=saturation=1.4:contrast=1.2,vignette=PI/4",
+        "boxblur=2:1,eq=brightness=0.05:saturation=1.15",
+        "colorbalance=bs=.25:bm=.15,eq=saturation=0.9",
+        "colorbalance=rm=.2:gm=.08:bm=-.2,eq=saturation=1.1"};
+    static final String[] EFFECTS = {"None","Glitch","Pixelate","Film grain","Sharpen","Sketch","Blur","Vignette","Strobe"};
+    static final String[] EFFECT_VF = {"","rgbashift=rh=8:bh=-8","scale=iw/20:ih/20,scale=iw*20:ih*20:flags=neighbor","noise=alls=22:allf=t+u",
+        "unsharp=5:5:1.5:5:5:0","edgedetect=low=0.08:high=0.25,negate","boxblur=8:2","vignette=PI/4","eq=brightness='0.12*sin(t*18)':eval=frame"};
+    static final String[] VOICES = {"None","Chipmunk","Deep","Echo","Radio"};
+    static final String[] VOICE_AF = {"","aresample=44100,asetrate=61740,aresample=44100,atempo=0.7143","aresample=44100,asetrate=35280,aresample=44100,atempo=1.25",
+        "aecho=0.8:0.85:70:0.45","highpass=f=500,lowpass=f=3200,volume=1.4"};
+    static final String[] TPOS = {"Bottom","Center","Top"}, TPOS_Y = {"h-text_h-h/12","(h-text_h)/2","h/12"};
+    static final String[] TCOL = {"White","Yellow","Red","Cyan","Black","Green"}, TCOL_HEX = {"white","0xffd400","0xff3b30","0x19e3e3","black","0x34c759"};
+    static final String[] TSIZE = {"Small","Medium","Large"}, TSIZE_EXPR = {"h/22","h/14","h/9"};
     static final String[] SPEEDS = {"0.25x","0.5x","1x (normal)","1.5x","2x","3x","4x"};
     static final double[] SPEED_V = {.25,.5,1,1.5,2,3,4};
     static final String[] XFORM = {"None","Rotate 90° right","Rotate 180°","Rotate 90° left","Flip horizontal","Flip vertical"};
@@ -48,10 +72,11 @@ public class MainActivity extends Activity {
     Spinner spFilter, spSpeed, spXform, spAspect, spQuality; SeekBar sbBright, sbContrast, sbSat;
     String inPath, pid; JSONObject proj; int durMs, startMs, endMs;
     final ArrayList<JSONObject> clips = new ArrayList<>(); JSONObject curClip; boolean ready; LinearLayout clipRow; SeekBar sbVol; TextView tvVol; MediaPlayer mpl;
+    Spinner spEffect, spTxtPos, spTxtCol, spTxtSize, spVoice; SeekBar sbTemp, sbSharp, sbZoom; CheckBox cbRev, cbTrans; ScrollView psv;
 
     // ---------- UI (dark, CapCut-style) ----------
     static final int BG = 0xFF0E0E10, PANEL = 0xFF1A1A1E, ACCENT = 0xFF19E3E3, TXT = 0xFFEDEDED, DIM = 0xFF8A8A92;
-    static final String[] TOOLS = {"Speed", "Filter", "Adjust", "Text", "Ratio", "Audio", "Quality"};
+    static final String[] TOOLS = {"Speed", "Filter", "Adjust", "Text", "Ratio", "Audio", "Quality", "More"};
     TimelineView tl; PlayView playBtn; TextView timeTxt;
     final View[] panels = new View[TOOLS.length]; final TextView[] toolBtns = new TextView[TOOLS.length];
     final Handler h = new Handler(); boolean playing; long lastSeek; float dp;
@@ -117,11 +142,14 @@ public class MainActivity extends Activity {
 
         FrameLayout pf = new FrameLayout(this); pf.setBackgroundColor(PANEL);
         spSpeed = sp(SPEEDS); spSpeed.setSelection(2); panels[0] = panel(spSpeed);
-        spFilter = sp(FILTERS); panels[1] = panel(spFilter);
-        sbBright = sb(); sbContrast = sb(); sbSat = sb();
-        panels[2] = panel(labeled("Brightness", sbBright), labeled("Contrast", sbContrast), labeled("Saturation", sbSat));
-        txt = new EditText(this); txt.setHint("Text overlay (optional)"); txt.setTextColor(TXT); txt.setHintTextColor(DIM); panels[3] = panel(txt);
-        spAspect = sp(ASPECT); spXform = sp(XFORM); panels[4] = panel(labeled("Crop to ratio", spAspect), labeled("Rotate / flip", spXform));
+        spFilter = sp(FILTERS); spEffect = sp(EFFECTS); panels[1] = panel(labeled("Filter", spFilter), labeled("Effect", spEffect));
+        sbBright = sb(); sbContrast = sb(); sbSat = sb(); sbTemp = sb(); sbSharp = sb(); sbSharp.setProgress(0);
+        panels[2] = panel(labeled("Brightness", sbBright), labeled("Contrast", sbContrast), labeled("Saturation", sbSat), labeled("Temperature (cool - warm)", sbTemp), labeled("Sharpness", sbSharp));
+        txt = new EditText(this); txt.setHint("Text overlay (optional)"); txt.setTextColor(TXT); txt.setHintTextColor(DIM);
+        spTxtPos = sp(TPOS); spTxtCol = sp(TCOL); spTxtSize = sp(TSIZE); spTxtSize.setSelection(1);
+        panels[3] = panel(txt, labeled("Position", spTxtPos), labeled("Color", spTxtCol), labeled("Size", spTxtSize));
+        spAspect = sp(ASPECT); spXform = sp(XFORM); sbZoom = sb(); sbZoom.setProgress(0);
+        panels[4] = panel(labeled("Crop to ratio", spAspect), labeled("Rotate / flip", spXform), labeled("Zoom", sbZoom));
         cbFade = new CheckBox(this); cbFade.setText("Fade in / out"); cbFade.setTextColor(TXT);
         cbMute = new CheckBox(this); cbMute.setText("Mute audio"); cbMute.setTextColor(TXT);
         tvVol = tv("Volume 100%", DIM); sbVol = new SeekBar(this); sbVol.setMax(200); sbVol.setProgress(100);
@@ -131,10 +159,13 @@ public class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar sk) { }
         });
         cbMute.setOnCheckedChangeListener((cb, on) -> applyVol());
-        panels[5] = panel(tvVol, sbVol, cbMute, cbFade);
+        spVoice = sp(VOICES); panels[5] = panel(tvVol, sbVol, labeled("Voice effect", spVoice), cbMute, cbFade);
         spQuality = sp(QUALITY); panels[6] = panel(labeled("Export quality", spQuality));
+        cbRev = new CheckBox(this); cbRev.setText("Reverse (up to 10 s total)"); cbRev.setTextColor(TXT);
+        cbTrans = new CheckBox(this); cbTrans.setText("Fade between clips"); cbTrans.setTextColor(TXT); panels[7] = panel(cbRev, cbTrans);
         for (View p : panels) pf.addView(p);
-        root.addView(pf, new LinearLayout.LayoutParams(-1, -2));
+        psv = new ScrollView(this); psv.setBackgroundColor(PANEL); psv.addView(pf); psv.setVisibility(View.GONE);
+        root.addView(psv, new LinearLayout.LayoutParams(-1, px(170)));
 
         HorizontalScrollView hs = new HorizontalScrollView(this); hs.setHorizontalScrollBarEnabled(false);
         LinearLayout tb = new LinearLayout(this);
@@ -147,6 +178,9 @@ public class MainActivity extends Activity {
         spAspect.setSelection(proj.optInt("aspect")); spQuality.setSelection(proj.optInt("quality"));
         sbBright.setProgress(proj.optInt("bright", 50)); sbContrast.setProgress(proj.optInt("contrast", 50)); sbSat.setProgress(proj.optInt("sat", 50));
         txt.setText(proj.optString("text")); cbFade.setChecked(proj.optBoolean("fade")); cbMute.setChecked(proj.optBoolean("mute"));
+        spEffect.setSelection(proj.optInt("effect")); spTxtPos.setSelection(proj.optInt("tpos")); spTxtCol.setSelection(proj.optInt("tcol")); spTxtSize.setSelection(proj.optInt("tsize", 1));
+        spVoice.setSelection(proj.optInt("voice")); sbTemp.setProgress(proj.optInt("temp", 50)); sbSharp.setProgress(proj.optInt("sharp")); sbZoom.setProgress(proj.optInt("zoom"));
+        cbRev.setChecked(proj.optBoolean("rev")); cbTrans.setChecked(proj.optBoolean("trans"));
         sbVol.setProgress(proj.optInt("volume", 100)); selectClip(clips.get(0));
         setContentView(root); refresh();
     }
@@ -160,7 +194,9 @@ public class MainActivity extends Activity {
             proj.put("clips", ja).put("path", clips.get(0).optString("path")).put("dur", total())
                 .put("speed", spSpeed.getSelectedItemPosition()).put("filter", spFilter.getSelectedItemPosition())
                 .put("xform", spXform.getSelectedItemPosition()).put("aspect", spAspect.getSelectedItemPosition()).put("quality", spQuality.getSelectedItemPosition())
-                .put("bright", sbBright.getProgress()).put("contrast", sbContrast.getProgress()).put("sat", sbSat.getProgress()).put("volume", sbVol.getProgress())
+                .put("bright", sbBright.getProgress()).put("contrast", sbContrast.getProgress()).put("sat", sbSat.getProgress()).put("volume", sbVol.getProgress()).put("effect", spEffect.getSelectedItemPosition()).put("tpos", spTxtPos.getSelectedItemPosition())
+                .put("tcol", spTxtCol.getSelectedItemPosition()).put("tsize", spTxtSize.getSelectedItemPosition()).put("voice", spVoice.getSelectedItemPosition())
+                .put("temp", sbTemp.getProgress()).put("sharp", sbSharp.getProgress()).put("zoom", sbZoom.getProgress()).put("rev", cbRev.isChecked()).put("trans", cbTrans.isChecked())
                 .put("text", txt.getText().toString()).put("fade", cbFade.isChecked()).put("mute", cbMute.isChecked());
             Projects.save(this, proj);
         } catch (Exception e) { }
@@ -186,7 +222,7 @@ public class MainActivity extends Activity {
     }
     LinearLayout labeled(String s, View v) { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.addView(tv(s, DIM)); l.addView(v); return l; }
     void showPanel(int k) {
-        boolean open = panels[k].getVisibility() != View.VISIBLE;
+        boolean open = panels[k].getVisibility() != View.VISIBLE; psv.setVisibility(open ? View.VISIBLE : View.GONE);
         for (int i = 0; i < panels.length; i++) { panels[i].setVisibility(open && i == k ? View.VISIBLE : View.GONE); toolBtns[i].setTextColor(open && i == k ? ACCENT : TXT); }
     }
     static String fmt(int ms) { int s = ms / 1000; return String.format(Locale.US, "%02d:%02d", s / 60, s % 60); }
@@ -347,6 +383,10 @@ public class MainActivity extends Activity {
         final boolean fade = cbFade.isChecked(), mute = cbMute.isChecked();
         final int fi = spFilter.getSelectedItemPosition(), xi = spXform.getSelectedItemPosition(), ai = spAspect.getSelectedItemPosition();
         final double br = (sbBright.getProgress() - 50) / 100.0, ct = sbContrast.getProgress() / 50.0, sa = sbSat.getProgress() / 50.0;
+        final int ei = spEffect.getSelectedItemPosition(), vi = spVoice.getSelectedItemPosition(), tp = spTxtPos.getSelectedItemPosition(), tc = spTxtCol.getSelectedItemPosition(), ts = spTxtSize.getSelectedItemPosition();
+        final double tmp = (sbTemp.getProgress() - 50) / 100.0 * 0.6, shp = sbSharp.getProgress() / 50.0, zoom = 1 + sbZoom.getProgress() / 100.0;
+        final boolean rev = cbRev.isChecked(), trans = cbTrans.isChecked();
+        if (rev && totalMs > 10000) { toast("Reverse works for up to 10 s of video"); return; }
         bar.setProgress(0);
 
         new Thread(() -> {
@@ -356,15 +396,21 @@ public class MainActivity extends Activity {
                 if (sp != 1) { vf.add(String.format(Locale.US, "setpts=PTS/%.4f", sp)); af.add(atempo(sp)); }
                 if (!XFORM_VF[xi].isEmpty()) vf.add(XFORM_VF[xi]);
                 if (ai > 0) vf.add(String.format(Locale.US, "crop=w='min(iw,ih*%.5f)':h='min(ih,iw/%.5f)'", ASPECT_V[ai], ASPECT_V[ai]));
+                if (zoom > 1) vf.add(String.format(Locale.US, "crop=w=iw/%.3f:h=ih/%.3f", zoom, zoom));
                 if (n == 1) vf.add("scale=w='if(gt(iw,ih),-2,min(" + h + ",iw))':h='if(gt(iw,ih),min(" + h + ",ih),-2)'");
+                if (rev) { vf.add("reverse"); af.add("areverse"); }
                 if (br != 0 || ct != 1 || sa != 1) vf.add(String.format(Locale.US, "eq=brightness=%.2f:contrast=%.2f:saturation=%.2f", br, ct, sa));
+                if (tmp != 0) vf.add(String.format(Locale.US, "colorbalance=rs=%.2f:rm=%.2f:rh=%.2f:bs=%.2f:bm=%.2f:bh=%.2f", tmp, tmp, tmp, -tmp, -tmp, -tmp));
+                if (shp > 0) vf.add(String.format(Locale.US, "unsharp=5:5:%.2f:5:5:0", shp));
                 if (!FILTER_VF[fi].isEmpty()) vf.add(FILTER_VF[fi]);
+                if (!EFFECT_VF[ei].isEmpty()) vf.add(EFFECT_VF[ei]);
                 if ((n == 1 ? f0 : F) * Math.max(1, sp) > cap + 0.5) vf.add("fps=" + cap);
+                if (!VOICE_AF[vi].isEmpty()) af.add(VOICE_AF[vi]);
                 if (vol != 1) af.add(String.format(Locale.US, "volume=%.2f", vol));
                 if (!text.isEmpty()) {
                     File f = new File(getCacheDir(), "t.txt"); FileWriter w = new FileWriter(f); w.write(text); w.close();
-                    vf.add("drawtext=fontfile=/system/fonts/Roboto-Regular.ttf:textfile=" + f.getPath() + ":expansion=none:fontcolor=white"
-                        + ":fontsize=h/14:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-text_h-h/12");
+                    vf.add("drawtext=fontfile=/system/fonts/Roboto-Regular.ttf:textfile=" + f.getPath() + ":expansion=none:fontcolor=" + TCOL_HEX[tc]
+                        + ":fontsize=" + TSIZE_EXPR[ts] + ":borderw=2:bordercolor=" + (tc == 4 ? "white" : "black") + ":x=(w-text_w)/2:y=" + TPOS_Y[tp]);
                 }
                 if (fade) {
                     vf.add("fade=t=in:st=0:d=0.5"); vf.add(String.format(Locale.US, "fade=t=out:st=%.2f:d=0.5", Math.max(0, outSec - 0.5)));
@@ -385,10 +431,13 @@ public class MainActivity extends Activity {
                     int[] cv = dispSize(paths.get(0)); boolean land = cv[0] >= cv[1]; int lg = h == 720 ? 1280 : 854, W = land ? lg : h, H = land ? h : lg;
                     StringBuilder fc = new StringBuilder(), cat = new StringBuilder();
                     for (int i = 0; i < n; i++) {
-                        fc.append(String.format(Locale.US, "[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%d,format=yuv420p[v%d];", i, W, H, W, H, F, i));
+                        double L = (rng.get(i)[1] - rng.get(i)[0]) / 1000.0;
+                        String tf = trans ? String.format(Locale.US, ",fade=t=in:st=0:d=0.4,fade=t=out:st=%.2f:d=0.4", Math.max(0, L - 0.4)) : "";
+                        String atf = trans ? String.format(Locale.US, ",afade=t=in:st=0:d=0.4,afade=t=out:st=%.2f:d=0.4", Math.max(0, L - 0.4)) : "";
+                        fc.append(String.format(Locale.US, "[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=%d%s,format=yuv420p[v%d];", i, W, H, W, H, F, tf, i));
                         cat.append("[v").append(i).append("]");
                         if (!mute) {
-                            if (hasAudio(paths.get(i))) fc.append(String.format(Locale.US, "[%d:a]aresample=44100,aformat=channel_layouts=stereo[a%d];", i, i));
+                            if (hasAudio(paths.get(i))) fc.append(String.format(Locale.US, "[%d:a]aresample=44100,aformat=channel_layouts=stereo%s[a%d];", i, atf, i));
                             else fc.append(String.format(Locale.US, "anullsrc=r=44100:cl=stereo,atrim=duration=%.3f[a%d];", (rng.get(i)[1] - rng.get(i)[0]) / 1000.0, i));
                             cat.append("[a").append(i).append("]");
                         }
