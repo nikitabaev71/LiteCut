@@ -1,7 +1,7 @@
 <div align="center">
 <img width="200" height="200" alt="image" src="https://github.com/user-attachments/assets/c7ee9c16-2cc0-4d7a-a639-35f873e69509" />
   
-[![Version](https://img.shields.io/badge/version-v0.0.1-000000?style=for-the-badge)](https://github.com/nikitabaev71/LiteCut/tags/PreLiteCut)
+[![Version](https://img.shields.io/badge/version-v0.0.0-000000?style=for-the-badge)](https://github.com/nikitabaev71/LiteCut/tags/PreLiteCut)
   
 # LiteCut
 
