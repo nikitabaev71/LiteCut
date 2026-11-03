@@ -33,3 +33,5 @@ LiteCut is an ~~(untested)~~ video editor like CapCut but very lightweight and f
 <img width="270" height="480" alt="Screenshot_2026-11-02-12-19-45" src="https://github.com/user-attachments/assets/7a2394b3-4407-4e7a-80e0-6598a8429330" />
 <img width="270" height="480" alt="Screenshot_2026-11-02-12-19-58" src="https://github.com/user-attachments/assets/5e6060b0-1fb0-4035-b286-8958de9c932e" />
 
+
+
